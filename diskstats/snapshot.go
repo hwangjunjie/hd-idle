@@ -33,7 +33,7 @@ type DiskStats struct {
 var scsiDiskRegex *regexp.Regexp
 
 func init() {
-	scsiDiskRegex = regexp.MustCompile("sd[a-z]$")
+	scsiDiskRegex = regexp.MustCompile("(sd[a-z])[1-9]$")
 }
 
 func Snapshot() []DiskStats {
@@ -52,6 +52,16 @@ func ReadSnapshot(r io.Reader) []DiskStats {
 	for scanner.Scan() {
 		diskStats, err := statsForDisk(scanner.Text())
 		if err == nil {
+			len := len(snapshot)
+			if len > 0 {
+				prev := snapshot[len-1]
+				if prev.Name == diskStats.Name {
+					snapshot[len-1].Reads += diskStats.Reads
+					snapshot[len-1].Writes += diskStats.Writes
+					continue
+				}
+			}
+
 			snapshot = append(snapshot, *diskStats)
 		}
 	}
@@ -71,11 +81,13 @@ func statsForDisk(rawStats string) (*DiskStats, error) {
 		name := cols[deviceNameCol]
 		reads, _ := strconv.Atoi(cols[readsCol])
 		writes, _ := strconv.Atoi(cols[writesCol])
-		if !scsiDiskRegex.MatchString(name) {
-			return nil, errors.New("disk is a partition")
+
+		part := scsiDiskRegex.FindStringSubmatch(name)
+		if part == nil {
+			return nil, errors.New("disk is not a partition")
 		}
 		stats := &DiskStats{
-			Name:   name,
+			Name:   part[1],
 			Reads:  reads,
 			Writes: writes,
 		}
